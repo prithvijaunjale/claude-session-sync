@@ -124,7 +124,7 @@ can open the wrong SSH window.
 
 This optional personal Claude skill creates another hosted conversation in an
 enabled folder and returns its phone link. It is usable from an already running
-shared conversation on your phone.
+shared conversation on your phone, or from the optional reception desk below.
 
 ```sh
 test ! -e "$HOME/.claude/skills/cd-claude" || exit 1
@@ -135,6 +135,13 @@ install -m 600 skill/cd-claude/SKILL.md "$HOME/.claude/skills/cd-claude/SKILL.md
 Specify an enabled folder, or let Claude ask you to choose one. If the skill is
 not discovered in an open conversation, reopen it. The skill does not enable
 new folders by itself.
+
+## 6. Optional: keep a permanent phone entry point
+
+To create project chats even after every hosted conversation has expired,
+install the [Claude Reception Desk](RECEPTION_DESK.md). It uses a separate native
+Remote Control server with one helper chat; the existing host and its 72-hour
+cleanup remain unchanged. This step is optional.
 
 ## Stop, resume, or roll back
 

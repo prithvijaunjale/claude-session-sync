@@ -64,6 +64,20 @@ tab left open through expiry must be closed and reopened. There is no automatic
 wake-on-message. Host shutdown stops workers; host startup does not recover them
 or replay interrupted prompts. Saved history remains available for resume.
 
+## Optional native reception desk
+
+`examples/claude-reception-desk.service` runs a separate native Remote Control
+server in `claude-reception-desk`, outside the host's project allowlist. It has
+one concurrent helper conversation and its own restart policy. The personal
+`/cd-claude` skill sends project creation requests to the existing host socket;
+project workers still follow normal ownership, capacity and idle rules.
+
+The native launcher is not a hosted worker. It is not subject to the host's
+idle reaper, does not inherit hosted model metadata, and cannot wake a stopped
+worker by receiving a message at that worker's old phone link. If native expiry
+or restart invalidates a helper URL, start another chat in the active reception
+environment. See [setup and operation](RECEPTION_DESK.md).
+
 ## Commands
 
 ```sh

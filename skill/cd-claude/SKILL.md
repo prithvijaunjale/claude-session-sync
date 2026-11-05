@@ -9,6 +9,10 @@ Use the existing local session host at:
 CSS_CLIENT="${CLAUDE_SESSION_HOST_STATE:-/var/tmp/$(id -un)/claude-session-host}/app/client.py"
 ```
 
+This skill can also run from the optional native reception desk. That helper
+is outside the shared host; honor explicit local creation defaults there and
+do not claim that its model/effort were inherited by `--inherit-current`.
+
 Resolve this path on the machine running the conversation and use it as
 `<client-path>` below.
 

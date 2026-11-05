@@ -1,0 +1,19 @@
+[Unit]
+Description=Claude Session Sync - permanent phone reception desk
+# For a shared home, set ConditionHost=your-hostname here before enabling boot.
+Wants=claude-session-host.service
+After=claude-session-host.service
+
+[Service]
+Type=exec
+WorkingDirectory=/var/tmp/%u/claude-reception-desk
+ExecStart=/var/tmp/%u/claude-session-host/app/runtime/claude remote-control --name "Claude Reception Desk" --spawn same-dir --capacity 1 --permission-mode default
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+UMask=0077
+Restart=always
+RestartSec=15
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

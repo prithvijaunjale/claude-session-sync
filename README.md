@@ -45,7 +45,8 @@ Linux machine, starting chats in several projects can otherwise mean maintaining
 a Remote Control server for each folder.
 
 The included `/cd-claude` skill lets you create another conversation in an
-enabled folder from an existing shared chat. Choose the project, receive its
+enabled folder from an existing shared chat or the optional reception desk.
+Choose the project, receive its
 Claude link, and continue on your phone. The conversation also appears in that
 project's official VS Code session history. You choose an explicit absolute
 path, so the new chat starts with that project's working directory and
@@ -54,8 +55,8 @@ configuration rather than a shared parent folder.
 Recent Claude Desktop builds also support phone-started sessions in selected
 local folders; users confirmed this in [#96867](https://github.com/anthropics/claude-code/issues/96867).
 This skill provides a creation route for our Linux host without depending on
-Claude Desktop. It requires an existing running shared conversation and an
-enabled destination folder.
+Claude Desktop. It requires a running shared conversation or the optional
+reception desk, plus an enabled destination folder.
 
 ### Keep the official Claude interfaces and project history
 
@@ -79,7 +80,8 @@ synchronize repositories between computers.
 | Find phone-created chats in the official Claude Code session manager | Open the matching project in VS Code and use its Session History. Requires a compatible extension. |
 | Start a new chat in another project from phone | Use `/cd-claude` from a running shared chat, targeting an enabled absolute folder. |
 | Adopt a conversation already running in tmux, a terminal, or native background mode | Live external processes are not adopted. Close the original owner, then reopen its saved chat through the host. |
-| Wake a stopped worker from phone, recover automatically after reboot, or use Claude Desktop as a client | Not implemented. See [defaults and boundaries](#defaults-and-boundaries). |
+| Start new project chats from phone after all hosted workers expire | Install the optional [permanent reception desk](docs/RECEPTION_DESK.md). Its native server provides a separate phone entry point. |
+| Wake a stopped worker through its old phone link, recover automatically after reboot, or use Claude Desktop as a client | Not implemented. See [defaults and boundaries](#defaults-and-boundaries). |
 
 ## Get started
 
@@ -111,6 +113,21 @@ The skill returns the new conversation's phone link. It provides folder
 selection through the conversation; the mobile app's built-in new-chat button
 is unchanged.
 
+## Optional permanent phone entry point
+
+If every hosted conversation expires after three days of complete inactivity,
+use **Claude Reception Desk** to start another project chat from your phone.
+It is a small native Remote Control server in a dedicated folder, managed by a
+separate systemd user service. Open its reception conversation, use `/cd-claude`,
+then follow the returned link to a normal shared project conversation.
+
+The desk allows one native helper chat at a time and stays outside hosted
+idle cleanup. Project chats retain their usual worker limit and timeout.
+This provides a way to create chats when no hosted worker is live; it does not
+wake an expired chat through its old phone link or restore workers after reboot.
+
+**[Set up the optional reception desk →](docs/RECEPTION_DESK.md)**
+
 ## How it works
 
 ```mermaid
@@ -123,6 +140,7 @@ flowchart TB
         A["VS Code adapter"]
         H["Persistent session host"]
         C["One Claude worker for this conversation"]
+        D["Optional reception desk (native Remote Control)"]
         A <--> H
         H <--> C
     end
@@ -130,6 +148,8 @@ flowchart TB
     V <--> A
     P <--> R
     R <--> C
+    R <--> D
+    D -. "Create project chat via /cd-claude" .-> H
 ```
 
 The host owns each worker's native JSON message stream. The adapter connects
@@ -153,7 +173,8 @@ configuration and local commands.
 
 After idle cleanup, history remains saved, but the phone connection is offline.
 Resume from VS Code or the local client. An offline phone message cannot wake a
-stopped worker in this version.
+stopped worker in this version. The optional [reception desk](docs/RECEPTION_DESK.md)
+provides a separate entry point for creating new project conversations.
 
 This is an early Linux integration with Claude's evolving process protocol,
 tested on one deployment. Native Windows, macOS, transparent reconnect after an
