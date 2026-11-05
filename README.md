@@ -1,14 +1,20 @@
 # Claude Session Sync
 
-**One running Claude session. VS Code and phone, in sync.**
+**Persistent Claude Code sessions for VS Code Remote-SSH and the official Claude phone app.**
 
-Claude Session Sync keeps Claude Code running independently of VS Code on your
-Linux machine, so the official editor extension and Claude phone app can share
-the same live conversation. One host manages a separate worker for each chat.
+Keep working on the same conversation when VS Code disconnects. Claude Session
+Sync runs Claude Code independently on your Linux machine and connects the
+**official VS Code extension** and **official Claude mobile app / web Remote
+Control** to the same live worker. One persistent session host manages a
+separate Claude process for each chat.
+
+Built for an always-on Linux workstation or server: start in VS Code, close
+your laptop, continue from your phone, then reopen the chat in the editor.
+Your server must stay awake and online.
 
 ## What it solves
 
-### Keep Claude running when VS Code disconnects
+### Keep Claude Code running after VS Code or Remote-SSH disconnects
 
 Claude Code normally runs as a child of VS Code's extension host. Closing
 VS Code or restarting that host can interrupt the conversation, even though
@@ -19,12 +25,13 @@ Claude Session Sync runs the worker independently. Close your laptop, continue
 from your phone, and reopen the conversation in VS Code—all against the same
 running Claude process.
 
-### Reduce “this conversation is open elsewhere” interruptions
+### Reattach to the same worker instead of starting a duplicate process
 
-For hosted conversations, Claude Session Sync reconnects VS Code to the existing
-worker instead of starting a competing Claude process. This handles everyday
-editor/phone switching and detach/reopen workflows without treating the running
-conversation as an ownership conflict.
+A reconnect should attach to the conversation already running, rather than
+launch another `claude --resume` against the same transcript. For hosted chats,
+Claude Session Sync reuses the existing worker. This reduces **“this conversation
+is open elsewhere”** / **“This conversation is still open somewhere else”**
+interruptions during everyday editor/phone switching and detach/reopen workflows.
 
 It isn't a universal fix: a surviving editor connection can still block
 reattachment, and conversations owned by an external Claude process must be
@@ -33,21 +40,46 @@ conversation, alongside native phone/web access.
 
 ### Start conversations in another folder from your phone
 
-Native Remote Control starts from a configured project directory; it doesn't
-provide an arbitrary directory picker for your remote machine.
+CLI Remote Control server mode starts from a project directory. On a headless
+Linux machine, starting chats in several projects can otherwise mean maintaining
+a Remote Control server for each folder.
 
 The included `/cd-claude` skill lets you create another conversation in an
 enabled folder from an existing shared chat. Choose the project, receive its
 Claude link, and continue on your phone. The conversation also appears in that
-project's official VS Code session history.
+project's official VS Code session history. You choose an explicit absolute
+path, so the new chat starts with that project's working directory and
+configuration rather than a shared parent folder.
 
-### Keep the official Claude interfaces
+Recent Claude Desktop builds also support phone-started sessions in selected
+local folders; users confirmed this in [#96867](https://github.com/anthropics/claude-code/issues/96867).
+This skill provides a creation route for our Linux host without depending on
+Claude Desktop. It requires an existing running shared conversation and an
+enabled destination folder.
+
+### Keep the official Claude interfaces and project history
 
 Use the official Claude Code extension and Claude phone app around one worker
 per conversation. Your existing tools, project configuration, questions and
-permission approvals remain part of the workflow.
+permission approvals remain part of the workflow. Phone-created hosted chats
+appear in the official extension's Session History for their project; you do not
+need a replacement chat extension or an all-project sidebar.
+
+This is live process sharing on one machine. It does not copy transcripts or
+synchronize repositories between computers.
 
 **Linux · Python standard library · Official Claude interfaces · Early release**
+
+## Fit for your workflow
+
+| Need | What to expect |
+|---|---|
+| Keep a Claude Code task alive when a laptop closes or a remote editor disconnects | The worker stays on the Linux host while the editor detaches. The host and worker must keep running. |
+| Continue the same chat in official VS Code and on phone | Both interfaces use the same hosted worker; one VS Code view may attach at a time. |
+| Find phone-created chats in the official Claude Code session manager | Open the matching project in VS Code and use its Session History. Requires a compatible extension. |
+| Start a new chat in another project from phone | Use `/cd-claude` from a running shared chat, targeting an enabled absolute folder. |
+| Adopt a conversation already running in tmux, a terminal, or native background mode | Live external processes are not adopted. Close the original owner, then reopen its saved chat through the host. |
+| Wake a stopped worker from phone, recover automatically after reboot, or use Claude Desktop as a client | Not implemented. See [defaults and boundaries](#defaults-and-boundaries). |
 
 ## Get started
 
@@ -129,17 +161,33 @@ idle stop, and automatic in-flight turn recovery after crashes/reboots are not
 implemented. A normal standalone `claude` terminal remains a separate process.
 The wrapper also has the [documented plan-mode restoration limitation](https://code.claude.com/docs/en/vs-code#resume-past-conversations).
 
-## Related approaches
+## Related approaches: tmux, Happy, Paseo and native Remote Control
 
-| Approach | Focus |
+Persistence and remote session creation are available in other tools. Choose
+Claude Session Sync when you want to keep **both official Claude interfaces**
+around the same worker on your Linux host.
+
+| Approach | Documented workflow and overlap |
 |---|---|
-| [Native Remote Control](https://code.claude.com/docs/en/remote-control) | Phone/web access to a running Claude process |
-| [claude-mux](https://github.com/pereljon/claude-mux) | Persistent terminal sessions managed through tmux |
-| [Claude Persist](https://github.com/jagajaga/claude-persist) | A persistent daemon with its own VS Code chat extension |
-| **Claude Session Sync** | A persistent worker shared by the official VS Code extension and native phone Remote Control |
+| [Native Remote Control](https://code.claude.com/docs/en/remote-control) | Official phone/web access to a local process. That process must remain alive; this project adds independent worker ownership and VS Code reattachment. |
+| [Native Claude Desktop](https://github.com/anthropics/claude-code/issues/96867) | Recent builds support phone-started sessions in selected local folders. This project targets a Linux host with official VS Code as the editor client. |
+| [tmux / screen](https://code.claude.com/docs/en/remote-control#limitations) and [claude-mux](https://github.com/pereljon/claude-mux) | Keep terminal sessions alive; claude-mux adds project/session management. A terminal multiplexer alone does not attach the official graphical VS Code panel to that worker. |
+| [Happy](https://github.com/slopus/happy) and [Paseo](https://github.com/getpaseo/paseo) | Daemon-based remote agent management with their own mobile/desktop/web clients. Their documented workflows overlap with persistence and remote creation. |
+| [Claude Persist](https://github.com/jagajaga/claude-persist) | A persistent daemon with its own VS Code chat extension, separate from the official extension. |
+| [Code Remote Starter](https://github.com/burakgon/code-remote-starter) | A phone-accessible launcher for sessions in chosen Mac directories, using tmux and native Remote Control. |
+| **Claude Session Sync** | A persistent worker shared by the **official Claude Code VS Code extension** and **official Claude phone app**, with project-scoped history and phone-driven creation in enabled folders. |
 
-These projects have overlapping capabilities. This project's focus is preserving
-both official interfaces around the same running conversation.
+## Public reports behind this workflow
+
+These reports describe the needs this design targets. They are motivation, not
+claims that this project fixes every reported bug or supports every reporter's
+platform:
+
+- [Attach official VS Code to a running remote/background worker as a thin client (#60840)](https://github.com/anthropics/claude-code/issues/60840).
+- [Keep a conversation alive after Remote Tunnel / Remote-SSH disconnects (#97754)](https://github.com/anthropics/claude-code/issues/97754).
+- [Avoid duplicate `claude --resume` workers after a Remote-SSH reconnect (#96352)](https://github.com/anthropics/claude-code/issues/96352).
+- [Select a project without maintaining one Remote Control server per folder (#100303)](https://github.com/anthropics/claude-code/issues/100303).
+- [Find Remote Control-created sessions in official VS Code history (#106389)](https://github.com/anthropics/claude-code/issues/106389).
 
 ## Development
 
