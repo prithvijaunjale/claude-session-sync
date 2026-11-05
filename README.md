@@ -2,42 +2,52 @@
 
 **One running Claude session. VS Code and phone, in sync.**
 
-Start a conversation in the official Claude Code extension. Close VS Code.
-Continue from the Claude app on your phone. Reopen the conversation in VS Code
-and pick up the same live session, with messages and tool activity intact.
+Claude Session Sync keeps Claude Code running independently of VS Code on your
+Linux machine, so the official editor extension and Claude phone app can share
+the same live conversation. One host manages a separate worker for each chat.
 
-Claude Session Sync keeps the Claude process on your Linux machine independent
-of the editor. The official VS Code extension and Claude's native Remote Control
-share that process. Each live conversation has its own worker; one host manages
-them all.
+## What it solves
+
+### Keep Claude running when VS Code disconnects
+
+Claude Code normally runs as a child of VS Code's extension host. Closing
+VS Code or restarting that host can interrupt the conversation, even though
+your remote machine is still available. Anthropic documents that
+[quitting the VS Code instance hosting a session takes it offline](https://code.claude.com/docs/en/remote-control#limitations).
+
+Claude Session Sync runs the worker independently. Close your laptop, continue
+from your phone, and reopen the conversation in VS Code—all against the same
+running Claude process.
+
+### Reduce “this conversation is open elsewhere” interruptions
+
+For hosted conversations, Claude Session Sync reconnects VS Code to the existing
+worker instead of starting a competing Claude process. This handles everyday
+editor/phone switching and detach/reopen workflows without treating the running
+conversation as an ownership conflict.
+
+It isn't a universal fix: a surviving editor connection can still block
+reattachment, and conversations owned by an external Claude process must be
+closed there before migration. The host allows one attached VS Code view per
+conversation, alongside native phone/web access.
+
+### Start conversations in another folder from your phone
+
+Native Remote Control starts from a configured project directory; it doesn't
+provide an arbitrary directory picker for your remote machine.
+
+The included `/cd-claude` skill lets you create another conversation in an
+enabled folder from an existing shared chat. Choose the project, receive its
+Claude link, and continue on your phone. The conversation also appears in that
+project's official VS Code session history.
+
+### Keep the official Claude interfaces
+
+Use the official Claude Code extension and Claude phone app around one worker
+per conversation. Your existing tools, project configuration, questions and
+permission approvals remain part of the workflow.
 
 **Linux · Python standard library · Official Claude interfaces · Early release**
-
-## Why use it?
-
-Remote Control already connects Claude Code to your phone. When VS Code owns
-the process, [quitting that VS Code instance takes its session offline](https://code.claude.com/docs/en/remote-control#limitations).
-Claude Session Sync moves ownership to a persistent local host and lets the
-editor attach to it again.
-
-This is for people who want the official Claude Code panel, the official Claude
-phone app, and an always-on machine to share a conversation without keeping an
-editor window open.
-
-## What you get
-
-- **One live conversation across editor and phone.** Messages, tool activity,
-  questions and permission prompts use the native Claude interfaces.
-- **Work that continues after VS Code disconnects.** Closing a conversation tab
-  or losing the editor connection detaches the view and leaves its worker alive.
-- **Native project history.** Reopen conversations through Claude Code's own
-  Session History in the current workspace.
-- **New conversations in another folder from your phone.** Use `/cd-claude` in a
-  running shared conversation to choose an enabled project and get a new link.
-- **Cleanup after three days of complete inactivity.** Pending approvals,
-  questions, queued messages and unfinished background tasks prevent cleanup.
-- **Explicit project selection.** Enable the folders you want to host. Other
-  VS Code projects continue to launch Claude normally.
 
 ## Get started
 
@@ -72,12 +82,22 @@ is unchanged.
 ## How it works
 
 ```mermaid
-flowchart LR
-    V[Official Claude Code extension] <--> A[Local adapter]
-    A <--> H[Persistent session host]
-    H <--> C[Claude worker for this conversation]
-    C <--> R[Anthropic Remote Control]
-    R <--> P[Official Claude phone app or web]
+flowchart TB
+    V["Official Claude Code extension"]
+    P["Official Claude phone app / web"]
+    R["Anthropic Remote Control"]
+
+    subgraph M["Your Linux machine"]
+        A["VS Code adapter"]
+        H["Persistent session host"]
+        C["One Claude worker for this conversation"]
+        A <--> H
+        H <--> C
+    end
+
+    V <--> A
+    P <--> R
+    R <--> C
 ```
 
 The host owns each worker's native JSON message stream. The adapter connects
