@@ -170,5 +170,11 @@ Runtime state, local implementation history, generated packages and machine
 configuration are excluded from this repository. Claude's proprietary runtime
 is installed separately and is not distributed here.
 
-A license has not yet been selected. Community project; not affiliated with or
-endorsed by Anthropic.
+Community project; not affiliated with or endorsed by Anthropic.
+
+## License
+
+[MIT License](LICENSE). Copyright (c) 2026 Prithvi Jaunjale.
+
+The license covers this repository's code. The separately installed Claude
+runtime remains subject to Anthropic's terms.
