@@ -1,0 +1,15 @@
+[Unit]
+Description=Claude Session Sync - shared VS Code and phone conversations
+# For a shared home, set ConditionHost=your-hostname here before enabling boot.
+
+[Service]
+Type=exec
+WorkingDirectory=/var/tmp/%u/claude-session-host/app
+ExecStart=/usr/bin/python3 /var/tmp/%u/claude-session-host/app/host.py --binary /var/tmp/%u/claude-session-host/app/runtime/claude --max-workers 32
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+UMask=0077
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

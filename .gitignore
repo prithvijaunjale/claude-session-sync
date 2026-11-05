@@ -1,0 +1,21 @@
+# Private local history and machine configuration
+.local-history/
+IMPLEMENTATION_HISTORY.md
+LOCAL_SETUP.md
+.state/
+.vscode/
+projects.json
+editor-setting-backup.json
+# Runtime state and generated artifacts
+runtime/
+__pycache__/
+*.py[cod]
+*.vsix
+*.log
+*.sock
+*.lock
+session.json
+events.jsonl
+.env
+.env.*
+.DS_Store
