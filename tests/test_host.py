@@ -86,6 +86,40 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer['uuid'], 'answer-1')
         self.assertIsNone(self.host.workers[self.session].process.returncode)
 
+    async def test_compacted_session_reconnects_to_same_worker_and_phone(self):
+        _, _, created = await self.connect(op='create')
+        reader, writer, _ = await self.connect()
+        await self.initialize(reader, writer)
+        continuation = str(uuid.uuid4())
+        # Claude can change its session_id in the stream without sending a
+        # fresh init. The native registry now resolves the new ID to this PID.
+        for session in (self.session, continuation):
+            writer.write(host.encode({'type': 'user', 'session_id': session,
+                'fixture_continuation': session == continuation,
+                'message': {'role': 'user', 'content': 'hello'}}))
+            await writer.drain()
+            await self.until(reader, lambda m: m.get('type') == 'result')
+        await self.detach(writer)
+
+        args = [self.args[0], '--resume', continuation]
+        with patch.object(host, 'native_owner',
+                          side_effect=lambda session: created['pid'] if session == continuation else None):
+            reader, writer, reopened = await self.connect(args=args)
+            self.assertTrue(reopened['ok'], reopened)
+            self.assertEqual(reopened['pid'], created['pid'])
+            self.assertEqual(reopened['remote_id'], created['remote_id'])
+            self.assertEqual(reopened['remote_url'], created['remote_url'])
+            await self.initialize(reader, writer)
+            for kind in ('system', 'user', 'assistant', 'result'):
+                event = json.loads(await asyncio.wait_for(reader.readline(), 2))
+                self.assertEqual(event['type'], kind)
+                self.assertEqual(event['session_id'], continuation)
+            _, _, duplicate = await self.connect(args=args)
+            self.assertIn('already has a VS Code client', duplicate['error'])
+            _, _, wrong_project = await self.connect(args=args, cwd='/tmp/another-project')
+            self.assertIn('another project', wrong_project['error'])
+        self.assertEqual(len(self.host.workers), 1)
+
     async def test_idle_expiry_stops_only_after_full_three_days_and_resumes(self):
         reader, writer, first = await self.connect()
         await self.initialize(reader, writer)

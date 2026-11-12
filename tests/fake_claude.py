@@ -18,7 +18,9 @@ for line in sys.stdin:
         emit({'type': 'control_response', 'response': {'subtype': 'success',
               'request_id': message['request_id'], 'response': result}})
     elif kind == 'user':
-        emit({'type': 'system', 'subtype': 'init', 'session_id': message['session_id']})
+        session = message['session_id']
+        if not message.get('fixture_continuation'):
+            emit({'type': 'system', 'subtype': 'init', 'session_id': session})
         emit(message)
         if message['message']['content'] == 'hook':
             emit({'type': 'control_request', 'request_id': 'hook-1',
@@ -29,7 +31,8 @@ for line in sys.stdin:
                   'request': {'subtype': 'can_use_tool', 'tool_name': 'Bash',
                               'input': {'command': 'true'}}})
         else:
-            emit({'type': 'assistant', 'uuid': 'answer-1', 'message': {'role': 'assistant', 'content': 'fixture answer'}})
-            emit({'type': 'result', 'subtype': 'success'})
+            emit({'type': 'assistant', 'session_id': session, 'uuid': 'answer-1',
+                  'message': {'role': 'assistant', 'content': 'fixture answer'}})
+            emit({'type': 'result', 'session_id': session, 'subtype': 'success'})
     elif kind == 'control_response':
         emit({'type': 'result', 'subtype': 'success'})

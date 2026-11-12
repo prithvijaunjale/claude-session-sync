@@ -43,7 +43,11 @@ checkout. The socket accepts the same UID only; this is a single-user host.
 ## Lifecycle and NFS
 
 The host starts empty. An explicit create/open starts a worker; reopening a live
-hosted conversation reuses it. Existing native processes are never adopted.
+hosted conversation reuses it. If compaction gives the conversation a new UUID,
+the host uses Claude's native registry to verify that the new UUID belongs to
+the same live worker in the same project. VS Code then reattaches without
+restarting the worker or changing its phone connection. Native processes
+started outside the host are never adopted.
 
 The example service allows 32 live workers. Direct `host.py` use defaults to one
 unless `--max-workers` is provided. Neither mode prestarts workers. New starts

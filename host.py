@@ -429,12 +429,11 @@ class Host:
             raise RuntimeError('Worker is stopping; reopen after it exits')
         return worker
 
-    async def get(self, message):
+    async def get(self, message, requested):
         args = list(message.get('args', []))
         cwd = message.get('cwd')
         if not cwd or not os.path.isabs(cwd):
             raise ValueError('An absolute working directory is required')
-        requested = argument(args, '--resume') or argument(args, '--session-id') or message.get('session')
         worker = self.existing(requested, cwd)
         if worker is not None:
             return worker
@@ -443,6 +442,18 @@ class Host:
             worker = self.existing(requested, cwd)
             if worker is not None:
                 return worker
+            session = requested or str(uuid.uuid4())
+            uuid.UUID(session)
+            owner = await self.owner(session)
+            if owner is not None:
+                if message.get('op') == 'attach':
+                    # Compaction can change Claude's registered session ID
+                    # without changing the process or its Remote Control link.
+                    for hosted in self.workers.values():
+                        process = hosted.process
+                        if process and process.pid == owner and process.returncode is None:
+                            return self.existing(hosted.session, cwd)
+                raise RuntimeError(f'Session is already owned by native Claude PID {owner}; it was not taken over')
             for existing in self.workers.values():
                 if existing.process is None or existing.process.returncode is not None:
                     continue
@@ -453,11 +464,6 @@ class Host:
             if any(w.process and w.process.returncode is None for w in self.workers.values()):
                 if sum(w.process.returncode is None for w in self.workers.values() if w.process) >= self.max_workers:
                     raise RuntimeError(f'The session host is at its {self.max_workers}-conversation limit. Close one before starting another.')
-            session = requested or str(uuid.uuid4())
-            uuid.UUID(session)
-            owner = await self.owner(session)
-            if owner is not None:
-                raise RuntimeError(f'Session is already owned by native Claude PID {owner}; it was not taken over')
             previous = STATE / session / 'session.json'
             saved = json.loads(previous.read_text()) if previous.exists() else {}
             if saved and saved.get('cwd') != cwd:
@@ -508,7 +514,9 @@ class Host:
                 await self.workers[session].stop()
                 writer.write(encode({'ok': True}))
             elif op in ('create', 'attach'):
-                worker = await self.get(first)
+                args = first.get('args', [])
+                requested = argument(args, '--resume') or argument(args, '--session-id') or first.get('session')
+                worker = await self.get(first, requested)
                 if op == 'create':
                     if not worker.initialized:
                         await worker.request('initialize', hooks={})
@@ -522,6 +530,7 @@ class Host:
                     worker.save()
                     writer.write(encode({'ok': True, **worker.info()}))
                 else:
+                    continuation = requested if requested != worker.session else None
                     if worker.client is not None:
                         raise RuntimeError('Session already has a VS Code client; detach that view first')
                     worker.client = writer
@@ -539,9 +548,13 @@ class Host:
                             writer.write(encode({'type': 'control_response', 'response': {
                                 'subtype': 'success', 'request_id': message['request_id'], 'response': result}}))
                             if worker.init_event:
-                                writer.write(encode(worker.init_event))
+                                init = worker.init_event
+                                if continuation:
+                                    init = {**init, 'session_id': continuation}
+                                writer.write(encode(init))
                             for event in worker.history:
-                                writer.write(encode(event))
+                                if not continuation or event.get('session_id') in (None, continuation):
+                                    writer.write(encode(event))
                             for event in worker.pending.values():
                                 writer.write(encode(event))
                             await writer.drain()
