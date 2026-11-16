@@ -21,6 +21,7 @@ STATE = Path(os.environ.get('CLAUDE_SESSION_HOST_STATE',
                             f'/var/tmp/{getpass.getuser()}/claude-session-host'))
 SOCKET = STATE / 'host.sock'
 LIMIT = 32 * 1024 * 1024
+REQUEST_TIMEOUT = 30
 
 
 def encode(message):
@@ -262,13 +263,19 @@ class Worker:
             self.save()
 
     async def deliver(self, message):
-        if self.client is not None:
-            self.client.write(encode(message))
-            try:
-                await asyncio.wait_for(self.client.drain(), timeout=5)
-            except (ConnectionError, asyncio.TimeoutError):
-                self.client.close()
+        client = self.client
+        if client is None:
+            return
+        try:
+            client.write(encode(message))
+            await asyncio.wait_for(client.drain(), timeout=5)
+        except (ConnectionError, asyncio.TimeoutError):
+            client.close()
+            # The old handler can finish detaching during drain. A new
+            # attachment may already own this worker by the time it fails.
+            if self.client is client:
                 self.client = None
+                self.ready = False
 
     async def pump(self):
         try:
@@ -293,6 +300,9 @@ class Worker:
                         if not future.done():
                             future.set_result(response)
                         continue
+                    if isinstance(request_id, str) and request_id.startswith('host-'):
+                        # The originating host request has already timed out.
+                        continue
                     result = response.get('response', {})
                     if isinstance(result, dict) and result.get('session_url'):
                         self.remote_url = result['session_url']
@@ -314,10 +324,13 @@ class Worker:
                     self.save()
                 if self.ready:
                     await self.deliver(message)
-        except (OSError, ValueError, asyncio.LimitOverrunError) as error:
-            self.state = 'protocol-error'
-            self.save()
+        except Exception as error:
             print(f'worker {self.session}: {type(error).__name__}', flush=True)
+            if self.state not in ('stopping', 'stopped'):
+                self.state = 'protocol-error'
+                if self.client is not None:
+                    self.client.close()
+                self.save()
 
     async def watch(self):
         await self.process.wait()
@@ -332,18 +345,24 @@ class Worker:
         self.stderr.close()
         self.journal.close()
 
-    async def request(self, subtype, **fields):
+    async def request(self, subtype, *, editor_handshake=False, **fields):
         request_id = 'host-' + str(uuid.uuid4())
         future = asyncio.get_running_loop().create_future()
         self.internal[request_id] = future
-        await self.send({'type': 'control_request', 'request_id': request_id,
-                         'request': {'subtype': subtype, **fields}})
         try:
-            response = await asyncio.wait_for(future, 30)
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                await self.send({'type': 'control_request', 'request_id': request_id,
+                                 'request': {'subtype': subtype, **fields}})
+                response = await future
         except asyncio.TimeoutError:
+            if editor_handshake:
+                raise RuntimeError(
+                    f'Claude did not finish the editor handshake in {REQUEST_TIMEOUT}s. '
+                    'Reopen this chat to retry on the same worker.') from None
             self.state = 'unresponsive'
             self.save()
-            raise RuntimeError('Claude did not reply in 30s. Worker retained; no retry worker launched.')
+            raise RuntimeError(f'Claude did not reply in {REQUEST_TIMEOUT}s. '
+                               'Worker retained; no retry worker launched.') from None
         finally:
             self.internal.pop(request_id, None)
         if response.get('subtype') == 'error':
@@ -518,9 +537,13 @@ class Host:
                 requested = argument(args, '--resume') or argument(args, '--session-id') or first.get('session')
                 worker = await self.get(first, requested)
                 if op == 'create':
+                    name = first.get('name', 'Claude shared session')
                     if not worker.initialized:
-                        await worker.request('initialize', hooks={})
-                    options = {'enabled': True, 'name': first.get('name', 'Claude shared session'),
+                        # The Remote Control name and the local history title
+                        # are separate. Set both for a newly created session.
+                        fields = {'title': name} if requested is None else {}
+                        await worker.request('initialize', hooks={}, **fields)
+                    options = {'enabled': True, 'name': name,
                                'keep_session_on_exit': True}
                     if worker.remote_id:
                         options['reattach_session_id'] = worker.remote_id
@@ -544,7 +567,8 @@ class Host:
                             # CLI supports reinitialization over stdin. Map the
                             # response back to this client rather than replaying
                             # old request IDs from a disconnected extension.
-                            result = await worker.request('initialize', **{k: v for k, v in request.items() if k != 'subtype'})
+                            fields = {k: v for k, v in request.items() if k != 'subtype'}
+                            result = await worker.request('initialize', editor_handshake=True, **fields)
                             writer.write(encode({'type': 'control_response', 'response': {
                                 'subtype': 'success', 'request_id': message['request_id'], 'response': result}}))
                             if worker.init_event:

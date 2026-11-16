@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -119,6 +119,86 @@ class HostTests(unittest.IsolatedAsyncioTestCase):
             _, _, wrong_project = await self.connect(args=args, cwd='/tmp/another-project')
             self.assertIn('another project', wrong_project['error'])
         self.assertEqual(len(self.host.workers), 1)
+
+    async def test_editor_handshake_timeout_allows_retry_on_same_worker(self):
+        _, _, created = await self.connect(op='create')
+        reader, writer, _ = await self.connect()
+        with patch.object(host, 'REQUEST_TIMEOUT', 0.1):
+            writer.write(host.encode({'type': 'control_request', 'request_id': 'old-init',
+                'request': {'subtype': 'initialize', 'fixture_delay_reply': True}}))
+            await writer.drain()
+            error = json.loads(await asyncio.wait_for(reader.readline(), 2))
+        self.assertIn('retry on the same worker', error['error'])
+        self.assertEqual(await asyncio.wait_for(reader.read(), 2), b'')
+        worker = self.host.workers[self.session]
+        self.assertEqual(worker.state, 'idle')
+        self.assertFalse(worker.internal)
+
+        reader, writer, reopened = await self.connect()
+        for key in ('pid', 'remote_id', 'remote_url'):
+            self.assertEqual(reopened[key], created[key])
+        reply = await self.initialize(reader, writer)
+        self.assertEqual(reply['response']['request_id'], 'client-initialize')
+        _, _, duplicate = await self.connect()
+        self.assertIn('already has a VS Code client', duplicate['error'])
+
+        writer.write(host.encode({'type': 'user', 'session_id': self.session,
+            'message': {'role': 'user', 'content': 'hello'}}))
+        await writer.drain()
+        event = json.loads(await asyncio.wait_for(reader.readline(), 2))
+        self.assertEqual(event['type'], 'system')  # The late reply stayed private.
+        result = await self.until(reader, lambda m: m.get('type') == 'result')
+        self.assertEqual(result['subtype'], 'success')
+        self.assertEqual(len(self.host.workers), 1)
+
+    async def test_editor_detaches_while_worker_is_flushing_output(self):
+        reader, writer, original = await self.connect()
+        await self.initialize(reader, writer)
+        worker = self.host.workers[self.session]
+        for _ in range(50):
+            if worker.ready:
+                break
+            await asyncio.sleep(0.01)
+        self.assertTrue(worker.ready)
+        old_client = worker.client
+        flushing = asyncio.Event()
+        detached = asyncio.Event()
+
+        async def broken_drain():
+            flushing.set()
+            await detached.wait()
+            raise ConnectionResetError
+
+        with patch.object(old_client, 'drain', side_effect=broken_drain):
+            worker.process.stdin.write(host.encode({'type': 'user', 'session_id': self.session,
+                'message': {'role': 'user', 'content': 'hello'}}))
+            await asyncio.wait_for(flushing.wait(), 2)
+            # Force the ordering of the detach handler and output pump.
+            worker.client = None
+            worker.ready = False
+            await self.detach(writer)
+            detached.set()
+
+        reader, writer, reopened = await self.connect()
+        self.assertEqual(reopened['pid'], original['pid'])
+        reply = await self.initialize(reader, writer)
+        self.assertEqual(reply['response']['subtype'], 'success')
+        self.assertFalse(worker.tasks[0].done())
+
+    async def test_new_phone_session_sets_local_title_and_remote_name(self):
+        calls = Mock()
+        request = host.Worker.request
+
+        async def capture(worker, subtype, **fields):
+            calls(subtype, **fields)
+            return await request(worker, subtype, **fields)
+
+        with patch.object(host.Worker, 'request', capture):
+            _, _, created = await self.connect(op='create', args=self.args[:1], name='Research follow-up')
+        self.assertTrue(created['ok'])
+        calls.assert_any_call('initialize', hooks={}, title='Research follow-up')
+        calls.assert_any_call('remote_control', enabled=True, name='Research follow-up',
+                              keep_session_on_exit=True)
 
     async def test_idle_expiry_stops_only_after_full_three_days_and_resumes(self):
         reader, writer, first = await self.connect()

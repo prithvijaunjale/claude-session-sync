@@ -8,6 +8,7 @@ def emit(message):
     print(json.dumps(message), flush=True)
 
 
+delayed_init = None
 for line in sys.stdin:
     message = json.loads(line)
     kind = message.get('type')
@@ -15,9 +16,16 @@ for line in sys.stdin:
         request = message['request']
         result = {'session_url': 'https://example.invalid/session/test',
                   'bridge_session_id': request.get('reattach_session_id', 'fake-remote')} if request['subtype'] == 'remote_control' else {'hooks_applied': True, 'pid': os.getpid(), 'cwd': os.getcwd()}
-        emit({'type': 'control_response', 'response': {'subtype': 'success',
-              'request_id': message['request_id'], 'response': result}})
+        reply = {'type': 'control_response', 'response': {'subtype': 'success',
+                 'request_id': message['request_id'], 'response': result}}
+        if request['subtype'] == 'initialize' and request.get('fixture_delay_reply'):
+            delayed_init = reply
+        else:
+            emit(reply)
     elif kind == 'user':
+        if delayed_init is not None:
+            emit(delayed_init)
+            delayed_init = None
         session = message['session_id']
         if not message.get('fixture_continuation'):
             emit({'type': 'system', 'subtype': 'init', 'session_id': session})
